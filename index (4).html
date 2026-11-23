@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>스나이퍼 게임</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#111111">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="스나이퍼">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+body{margin:0;background:#111;display:flex;align-items:center;min-height:100vh}
+#wrap{position:relative;width:100%;max-width:800px;margin:auto;background:#111}
+
+/* 설치 화면 (게임 화면 위에 덮어서 표시) */
+#installScreen{
+  position:absolute;inset:0;z-index:10;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(8,10,12,.88);padding:4%;box-sizing:border-box;
+}
+#installScreen[hidden]{display:none}
+#isBox{
+  width:100%;max-width:440px;box-sizing:border-box;
+  border:3px solid #a88b54;outline:1px solid #6f5936;outline-offset:-8px;
+  background:#1d1812;padding:clamp(14px,4vw,26px);text-align:center;color:#f1dfb6;
+  font-family:sans-serif;
+}
+#isIcon{width:clamp(48px,14vw,76px);height:auto;border-radius:14px;border:2px solid #a88b54}
+#isTitle{margin:8px 0 2px;font:bold clamp(20px,6vw,30px) Georgia,serif;color:#e6d4aa}
+#isDesc{margin:0 0 12px;font-size:clamp(12px,3.4vw,14px);color:#c6b48e}
+#isSteps{display:none;text-align:left;margin:0 0 12px;padding:10px 10px 10px 28px;
+  background:rgba(0,0,0,.4);border:1px solid #6f5936;border-radius:6px;
+  font-size:clamp(12px,3.4vw,14px);line-height:1.6}
+#isSteps li{margin:2px 0}
+.isBtn{
+  display:block;width:100%;box-sizing:border-box;cursor:pointer;
+  font:bold clamp(15px,4.4vw,18px) sans-serif;padding:13px;border-radius:6px;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+}
+#isInstall{background:#5a4630;color:#fff0c5;border:2px solid #d1b67c;margin-bottom:8px}
+#isLater{background:transparent;color:#d9c69c;border:1px solid #6f5936;font-size:clamp(13px,3.8vw,15px);padding:10px}
+#isNever{margin-top:8px;background:none;border:none;color:#8d876d;font-size:12px;cursor:pointer;text-decoration:underline;padding:6px}
+#isInstall:active,#isLater:active{filter:brightness(1.3)}
+</style>
+</head>
+<body>
+
+<div id="wrap">
+<canvas id="sniperCanvas" width="800" height="500"
+style="width:100%;height:auto;display:block;touch-action:none;cursor:crosshair;"></canvas>
+
+<div id="installScreen" hidden>
+  <div id="isBox">
+    <img id="isIcon" src="icon-192.png" alt="">
+    <h2 id="isTitle">SNIPER TARGET</h2>
+    <p id="isDesc">앱으로 설치하면 홈 화면에서 바로 전체 화면으로 즐길 수 있어요.</p>
+    <ol id="isSteps"></ol>
+    <button id="isInstall" class="isBtn" type="button">📲 앱 설치하기</button>
+    <button id="isLater" class="isBtn" type="button">나중에 / 그냥 플레이</button>
+    <button id="isNever" type="button">다시 보지 않기</button>
+  </div>
+</div>
+</div>
+
+<script>
+(() => {
+const canvas = document.getElementById("sniperCanvas");
+const ctx = canvas.getContext("2d");
+const W=800, H=500;
+
+let mode="menu";
+let score=0, ammo=6, timeLeft=60;
+const total=6;
+let targets=[], hitTexts=[];
+let mouse={x:400,y:220};
+let message="", messageTime=0, flash=0;
+let elapsedTime=0, lastPenalty=0;
+let lastTime=performance.now();
+
+const rand=(a,b)=>Math.random()*(b-a)+a;
+
+function makeTarget(i) {
+  const speeds=[45,63,81,99,117,135];
+  return {
+    x:50+i*115,
+    y:140+(i%3)*75,
+    w:28,h:28,
+    speed:(i%2===0?1:-1)*speeds[i],
+    color:["#e9e0c6","#d6d0b8","#d9c8a0","#eee6d1","#cfc6ae","#d9cbb4"][i],
+    alive:true
+  };
+}
+
+function resetGame() {
+  score=0;
+  ammo=6;
+  timeLeft=60;
+  elapsedTime=0;
+  lastPenalty=0;
+  message="";
+  messageTime=0;
+  flash=0;
+  hitTexts=[];
+  targets=Array.from({length:6},(_,i)=>makeTarget(i));
+  mode="game";
+  lastTime=performance.now();
+}
+
+function drawText(text,x,y,size,color,align="center",font="monospace") {
+  ctx.fillStyle=color;
+  ctx.textAlign=align;
+  ctx.font=`bold ${size}px ${font}`;
+  ctx.fillText(text,x,y);
+}
+
+function drawBackground() {
+  ctx.fillStyle="#151c22";
+  ctx.fillRect(0,0,W,H);
+
+  ctx.fillStyle="#26342e";
+  ctx.beginPath();
+  ctx.moveTo(0,240);
+  ctx.lineTo(110,150);
+  ctx.lineTo(230,235);
+  ctx.lineTo(370,135);
+  ctx.lineTo(530,230);
+  ctx.lineTo(680,145);
+  ctx.lineTo(800,220);
+  ctx.lineTo(800,400);
+  ctx.lineTo(0,400);
+  ctx.fill();
+
+  ctx.fillStyle="#47382b";
+  ctx.fillRect(0,280,W,125);
+  ctx.fillStyle="#6d4c30";
+  for(let y=285;y<405;y+=22) ctx.fillRect(0,y,W,3);
+
+  ctx.fillStyle="#202a21";
+  ctx.fillRect(0,405,W,95);
+  ctx.fillStyle="#34422e";
+  for(let i=0;i<30;i++) ctx.fillRect((i*71)%W,420+(i%4)*14,18,3);
+
+  ctx.fillStyle="#59402b";
+  ctx.fillRect(20,180,18,230);
+  ctx.fillRect(762,180,18,230);
+  ctx.fillStyle="#8a613b";
+  ctx.fillRect(24,180,4,230);
+  ctx.fillRect(766,180,4,230);
+
+  ctx.fillStyle="#3b3025";
+  ctx.fillRect(0,0,W,20);
+  ctx.fillRect(0,20,12,100);
+  ctx.fillRect(788,20,12,100);
+}
+
+function drawTarget(t) {
+  if(!t.alive) return;
+
+  const cx=t.x+t.w/2;
+  const cy=t.y+t.h/2;
+  const r=t.w/2;
+
+  // 기둥
+  ctx.fillStyle="#4b3a29";
+  ctx.fillRect(cx-2,cy+r,4,28);
+
+  // 바깥 원
+  ctx.fillStyle="#e9e0c6";
+  ctx.beginPath();
+  ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.fill();
+
+  // 빨간 링
+  ctx.fillStyle="#a92d25";
+  ctx.beginPath();
+  ctx.arc(cx,cy,r*0.8,0,Math.PI*2);
+  ctx.fill();
+
+  // 흰색 링
+  ctx.fillStyle="#eee4cf";
+  ctx.beginPath();
+  ctx.arc(cx,cy,r*0.55,0,Math.PI*2);
+  ctx.fill();
+
+  // 중앙 빨간 링
+  ctx.fillStyle="#a92d25";
+  ctx.beginPath();
+  ctx.arc(cx,cy,r*0.3,0,Math.PI*2);
+  ctx.fill();
+
+  // 정중앙
+  ctx.fillStyle="#f8e7b8";
+  ctx.beginPath();
+  ctx.arc(cx,cy,r*0.12,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.strokeStyle="#e5d8b7";
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.stroke();
+}
+
+function drawSniper() {
+  ctx.save();
+  ctx.translate(400,500);
+
+  ctx.fillStyle="#38271c";
+  ctx.fillRect(-40,-95,80,45);
+  ctx.fillStyle="#765034";
+  ctx.fillRect(-30,-90,60,28);
+  ctx.fillStyle="#251d18";
+  ctx.fillRect(-8,-70,16,28);
+
+  ctx.fillStyle="#252b2c";
+  ctx.fillRect(-24,-135,48,80);
+  ctx.fillStyle="#515958";
+  ctx.fillRect(-18,-130,36,64);
+  ctx.fillStyle="#171c1d";
+  ctx.fillRect(-8,-140,16,90);
+
+  ctx.fillStyle="#171b1c";
+  ctx.fillRect(-7,-240,14,110);
+  ctx.fillStyle="#626b6b";
+  ctx.fillRect(-4,-240,4,110);
+
+  ctx.fillStyle="#141919";
+  ctx.fillRect(-32,-165,64,24);
+  ctx.fillStyle="#566363";
+  ctx.fillRect(-24,-160,48,14);
+  ctx.fillStyle="#182124";
+  ctx.fillRect(-14,-180,28,16);
+  ctx.fillStyle="#739095";
+  ctx.fillRect(-10,-178,20,4);
+
+  ctx.fillStyle="#202424";
+  ctx.fillRect(-13,-80,26,50);
+  ctx.fillStyle="#4c3424";
+  ctx.fillRect(-10,-75,20,38);
+
+  ctx.restore();
+}
+
+function drawCrosshair() {
+  const x=mouse.x,y=mouse.y;
+
+  ctx.strokeStyle="rgba(255,40,30,0.45)";
+  ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.moveTo(400,275);
+  ctx.lineTo(x,y);
+  ctx.stroke();
+
+  ctx.fillStyle="#ff2626";
+  ctx.beginPath();
+  ctx.arc(x,y,3,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.strokeStyle="#ff4137";
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(x-19,y);ctx.lineTo(x-6,y);
+  ctx.moveTo(x+6,y);ctx.lineTo(x+19,y);
+  ctx.moveTo(x,y-19);ctx.lineTo(x,y-6);
+  ctx.moveTo(x,y+6);ctx.lineTo(x,y+19);
+  ctx.stroke();
+
+  ctx.strokeStyle="#ffd4b9";
+  ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.arc(x,y,7,0,Math.PI*2);
+  ctx.stroke();
+}
+
+function drawHitTexts() {
+  for(const h of hitTexts) {
+    ctx.save();
+    ctx.globalAlpha=Math.max(0,h.life/1.5);
+    ctx.font="bold 23px monospace";
+    ctx.textAlign="center";
+    ctx.lineWidth=4;
+    ctx.strokeStyle="#39230d";
+    ctx.fillStyle="#ffe85c";
+    ctx.strokeText(h.text,h.x,h.y);
+    ctx.fillText(h.text,h.x,h.y);
+    ctx.restore();
+  }
+}
+
+function drawHUD() {
+  ctx.fillStyle="rgba(0,0,0,0.78)";
+  ctx.fillRect(12,30,270,82);
+  ctx.strokeStyle="#a58a5a";
+  ctx.lineWidth=2;
+  ctx.strokeRect(12,30,270,82);
+
+  drawText("SCORE: "+score,28,59,20,"#f1dfb6","left");
+  drawText("AMMO: "+ammo+" / "+total,28,85,17,"#e9e0c6","left");
+  drawText("TIME: "+Math.ceil(timeLeft)+"s",265,59,18,"#e9e0c6","right");
+  drawText("R : MAIN MENU",770,48,14,"#d9c69c","right");
+  drawText("CENTER: 10 PTS",770,69,13,"#c8b98d","right");
+
+  if(messageTime>0) drawText(message,400,135,25,"#ffe4a1");
+
+  if(flash>0) {
+    ctx.fillStyle=`rgba(255,230,170,${flash*0.2})`;
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+function drawMenu() {
+  drawBackground();
+  ctx.fillStyle="rgba(0,0,0,0.55)";
+  ctx.fillRect(0,0,W,H);
+
+  ctx.strokeStyle="#a88b54";
+  ctx.lineWidth=4;
+  ctx.strokeRect(90,55,620,365);
+  ctx.strokeStyle="#6f5936";
+  ctx.lineWidth=1;
+  ctx.strokeRect(102,67,596,341);
+
+  drawText("SNIPER",400,150,57,"#e6d4aa","center","Georgia");
+  drawText("TARGET",400,208,55,"#d6b77c","center","Georgia");
+
+  ctx.fillStyle="#bda06a";
+  ctx.fillRect(270,232,260,2);
+
+  ctx.fillStyle="#3a3022";
+  ctx.fillRect(245,280,310,66);
+  ctx.strokeStyle="#d1b67c";
+  ctx.lineWidth=3;
+  ctx.strokeRect(245,280,310,66);
+  drawText("TOUCH TO START",400,322,22,"#f4e4bd");
+  drawText("EXIT GAME",400,385,18,"#b7a17a");
+  drawText("PIXEL SHOOTING RANGE",400,455,13,"#8d876d");
+}
+
+function drawGameOver() {
+  drawBackground();
+  targets.forEach(drawTarget);
+  drawSniper();
+
+  ctx.fillStyle="rgba(0,0,0,0.8)";
+  ctx.fillRect(0,0,W,H);
+
+  ctx.strokeStyle="#a88b54";
+  ctx.lineWidth=3;
+  ctx.strokeRect(145,100,510,300);
+
+  drawText("GAME OVER",400,180,46,"#d9b978","center","Georgia");
+  drawText("FINAL SCORE",400,245,21,"#c6b48e");
+  drawText(String(score),400,295,42,"#fff0c5");
+  drawText("TOUCH TO RETURN",400,360,19,"#e0d0a9");
+}
+
+function calculateHitScore(t,x,y) {
+  const cx=t.x+t.w/2;
+  const cy=t.y+t.h/2;
+  const dx=(x-cx)/(t.w/2);
+  const dy=(y-cy)/(t.h/2);
+  const distance=Math.sqrt(dx*dx+dy*dy);
+  return Math.max(2,Math.round(10-8*Math.min(distance,1)));
+}
+
+function shoot() {
+  if(mode!=="game") return;
+
+  if(ammo<=0) {
+    mode="over";
+    return;
+  }
+
+  ammo--;
+  flash=0.7;
+  let hit=false;
+
+  for(const t of targets) {
+    if(!t.alive) continue;
+
+    const cx=t.x+t.w/2;
+    const cy=t.y+t.h/2;
+    const r=t.w/2;
+
+    const dx=mouse.x-cx;
+    const dy=mouse.y-cy;
+
+    if(dx*dx+dy*dy<=r*r) {
+      hit=true;
+      const points=calculateHitScore(t,mouse.x,mouse.y);
+      t.alive=false;
+      score+=points;
+
+      hitTexts.push({
+        x:mouse.x,
+        y:mouse.y,
+        text:"+"+points,
+        life:1.5
+      });
+
+      message="+"+points;
+      messageTime=0.5;
+      break;
+    }
+  }
+
+  if(!hit) {
+    message="MISS";
+    messageTime=0.45;
+  }
+
+  if(ammo<=0) mode="over";
+}
+
+function update(dt) {
+  if(mode!=="game") return;
+
+  timeLeft-=dt;
+  elapsedTime+=dt;
+
+  if(timeLeft<=0) {
+    timeLeft=0;
+    mode="over";
+    return;
+  }
+
+  // 10초마다 2점 감점
+  const penalty=Math.floor(elapsedTime/10)*2;
+  if(penalty>lastPenalty) {
+    score=Math.max(0,score-(penalty-lastPenalty));
+    lastPenalty=penalty;
+  }
+
+  for(const t of targets) {
+    if(!t.alive) continue;
+    t.x+=t.speed*dt;
+
+    if(t.x<25) {
+      t.x=25;
+      t.speed=Math.abs(t.speed);
+    }
+    if(t.x+t.w>775) {
+      t.x=775-t.w;
+      t.speed=-Math.abs(t.speed);
+    }
+  }
+
+  for(const h of hitTexts) {
+    h.y-=25*dt;
+    h.life-=dt;
+  }
+  hitTexts=hitTexts.filter(h=>h.life>0);
+
+  if(messageTime>0) messageTime-=dt;
+  if(flash>0) flash=Math.max(0,flash-dt*4);
+}
+
+function draw() {
+  if(mode==="menu") {
+    drawMenu();
+  } else if(mode==="game") {
+    drawBackground();
+    targets.forEach(drawTarget);
+    drawSniper();
+    drawHUD();
+    drawHitTexts();
+    drawCrosshair();
+  } else if(mode==="over") {
+    drawGameOver();
+  }
+}
+
+function loop(now) {
+  const dt=Math.min((now-lastTime)/1000,0.05);
+  lastTime=now;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function getPos(e) {
+  const r=canvas.getBoundingClientRect();
+  return {
+    x:(e.clientX-r.left)*W/r.width,
+    y:(e.clientY-r.top)*H/r.height
+  };
+}
+
+canvas.addEventListener("pointermove",e=>{
+  mouse=getPos(e);
+});
+
+canvas.addEventListener("pointerdown",e=>{
+  e.preventDefault();
+  mouse=getPos(e);
+
+  if(mode==="menu") {
+    if(mouse.y>=270 && mouse.y<=355) resetGame();
+  } else if(mode==="game") {
+    shoot();
+  } else if(mode==="over") {
+    mode="menu";
+  }
+});
+
+window.addEventListener("keydown",e=>{
+  if(e.code==="KeyR") {
+    e.preventDefault();
+    mode="menu";
+  }
+  if(e.code==="Escape") mode="menu";
+});
+
+requestAnimationFrame(loop);
+})();
+
+/* ===== 앱 설치 (PWA) ===== */
+(() => {
+const screen = document.getElementById("installScreen");
+const stepsEl = document.getElementById("isSteps");
+const descEl = document.getElementById("isDesc");
+const installBtn = document.getElementById("isInstall");
+const laterBtn = document.getElementById("isLater");
+const neverBtn = document.getElementById("isNever");
+let deferredPrompt = null;
+
+const ua = navigator.userAgent;
+const isStandalone =
+  window.matchMedia("(display-mode: standalone)").matches ||
+  window.matchMedia("(display-mode: fullscreen)").matches ||
+  window.navigator.standalone === true;
+const isIOS = /iphone|ipad|ipod/i.test(ua) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isInApp = /KAKAOTALK|NAVER|Instagram|FBAN|FBAV|Line\//i.test(ua);
+
+function neverShow() {
+  try { return localStorage.getItem("installNever") === "1"; } catch (e) { return false; }
+}
+function hide() { screen.hidden = true; }
+
+if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+  navigator.serviceWorker.register("sw.js").then(r => r.update()).catch(() => {});
+}
+
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  deferredPrompt = e;
+});
+window.addEventListener("appinstalled", () => { deferredPrompt = null; hide(); });
+
+function showSteps() {
+  let html;
+  if (isInApp) {
+    html = "<li>지금은 앱 안의 브라우저라 설치가 안 돼요.</li>" +
+           "<li><b>⋮ / 공유</b> 메뉴에서 <b>‘다른 브라우저로 열기’</b>를 누르세요.</li>" +
+           "<li>" + (isIOS ? "사파리" : "크롬") + "에서 다시 열어 설치하세요.</li>";
+  } else if (isIOS) {
+    html = "<li>화면 아래 가운데 <b>공유 버튼</b>(□ 위에 ↑)을 누르세요.</li>" +
+           "<li>목록을 올려 <b>‘홈 화면에 추가’</b>를 누르세요.</li>" +
+           "<li>오른쪽 위 <b>‘추가’</b>를 누르면 끝!</li>";
+  } else {
+    html = "<li>크롬 오른쪽 위 <b>⋮ 메뉴</b>를 누르세요.</li>" +
+           "<li><b>‘앱 설치’</b> 또는 <b>‘홈 화면에 추가’</b>를 누르세요.</li>" +
+           "<li>시크릿 모드·http 주소에서는 안 보일 수 있어요.</li>";
+  }
+  stepsEl.innerHTML = html;
+  stepsEl.style.display = "block";
+  descEl.style.display = "none";
+  installBtn.textContent = "확인했어요";
+  installBtn.dataset.done = "1";
+}
+
+installBtn.addEventListener("click", async e => {
+  e.preventDefault();
+  if (installBtn.dataset.done === "1") { hide(); return; }
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    try { await deferredPrompt.userChoice; } catch (err) {}
+    deferredPrompt = null;
+    hide();
+  } else {
+    showSteps();
+  }
+});
+laterBtn.addEventListener("click", hide);
+neverBtn.addEventListener("click", () => {
+  try { localStorage.setItem("installNever", "1"); } catch (e) {}
+  hide();
+});
+
+// 게임 화면 위에 설치 화면 표시 (이미 앱으로 실행 중이면 안 보임)
+if (!isStandalone && !neverShow()) screen.hidden = false;
+})();
+</script>
+
+</body>
+</html>
