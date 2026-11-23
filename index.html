@@ -49,6 +49,13 @@ body{margin:0;background:#111;display:flex;align-items:center;min-height:100vh}
 </style>
 </head>
 <body>
+<div id="errBox" style="display:none;position:fixed;left:0;right:0;top:0;z-index:99;background:#5a0000;color:#fff;font:12px/1.4 monospace;padding:8px;white-space:pre-wrap"></div>
+<script>
+window.addEventListener("error",function(e){
+  var b=document.getElementById("errBox");
+  if(b){b.style.display="block";b.textContent+="오류: "+e.message+" ("+(e.lineno||"?")+")\n";}
+});
+</script>
 
 <div id="wrap">
 <canvas id="sniperCanvas" width="800" height="500"
@@ -543,8 +550,10 @@ function neverShow() {
 }
 function hide() { screen.hidden = true; }
 
-if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
-  navigator.serviceWorker.register("sw.js").then(r => r.update()).catch(() => {});
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.getRegistrations()
+    .then(rs => rs.forEach(r => r.unregister())).catch(() => {});
+  if (window.caches) caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
 }
 
 window.addEventListener("beforeinstallprompt", e => {
